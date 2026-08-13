@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern Web Previewer</title>
+    <!-- 外部リソース読み込み -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <style>
+        /* =========================================
+           ベース・リセットCSS
+        ========================================= */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        :root {
+            --primary: #4F46E5;
+            --primary-hover: #4338CA;
+            --bg-base: #F9FAFB;
+            --bg-surface: #FFFFFF;
+            --border: #E5E7EB;
+            --text-main: #111827;
+            --text-muted: #6B7280;
+            --editor-bg: #1E1E1E;
+            --editor-text: #D4D4D4;
+        }
+        body {
+            font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* =========================================
+           ヘッダー
+        ========================================= */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1.5rem;
+            background-color: var(--bg-surface);
+            border-bottom: 1px solid var(--border);
+            height: 60px;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: var(--primary);
+        }
+        .header-actions {
+            display: flex;
+            gap: 0.75rem;
+        }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+        .btn-outline {
+            background-color: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-main);
+        }
+        .btn-outline:hover {
+            background-color: var(--bg-base);
+        }
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+        }
+        .btn-primary:hover {
+            background-color: var(--primary-hover);
+        }
+        .btn .material-icons {
+            font-size: 1.1rem;
+        }
+
+        /* =========================================
+           メインコンテンツレイアウト
+        ========================================= */
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        /* サイドバー（ファイルツリー） */
+        .sidebar {
+            width: 280px;
+            background-color: var(--bg-surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 1rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .file-tree-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.5rem;
+        }
+        .tree-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            color: var(--text-main);
+            transition: background 0.1s;
+        }
+        .tree-item:hover {
+            background-color: var(--bg-base);
+        }
+        .tree-item.active {
+            background-color: #EEF2FF;
+            color: var(--primary);
+        }
+        .tree-item .material-icons {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+        }
+        .tree-item.active .material-icons {
+            color: var(--primary);
+        }
+        .folder-group {
+            margin-left: 1rem;
+        }
+
+        /* =========================================
+           エディタ領域
+        ========================================= */
+        .editor-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-surface);
+        }
+        .editor-tabs {
+            display: flex;
+            align-items: center;
+            padding: 0 1rem;
+            height: 40px;
+            border-bottom: 1px solid var(--border);
+            background-color: var(--bg-base);
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+        .editor-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            background-color: var(--bg-surface);
+        }
+        /* 行番号のスクロール同期のズレを防ぐため、フォント設定を完全に一致させる */
+        .line-numbers {
+            padding: 1rem 0.5rem;
+            background-color: var(--bg-base);
+            color: #9CA3AF;
+            text-align: right;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            overflow-y: hidden;
+            border-right: 1px solid var(--border);
+            user-select: none;
+            min-width: 45px;
+        }
+        .code-textarea {
+            flex: 1;
+            padding: 1rem;
+            border: none;
+            resize: none;
+            outline: none;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            background-color: transparent;
+            color: var(--text-main);
+            white-space: pre;
+            overflow: auto;
+        }
+
+        /* =========================================
+           レスポンシブデザイン (スマホ/タブレット向け)
+        ========================================= */
+        @media (max-width: 768px) {
+            .header {
+                padding: 0.5rem 1rem;
+            }
+            .header-actions {
+                gap: 0.5rem;
+            }
+            .btn {
+                padding: 0.4rem 0.6rem;
+            }
+            .btn-text-hide {
+                display: none;
+            }
+            .main-content {
+                flex-direction: column;
+            }
+            .sidebar {
+                width: 100%;
+                height: 200px;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+            .editor-section {
+                height: calc(100vh - 60px - 200px);
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="logo">
+            <span class="material-icons">web</span>
+            <span>Previewer</span>
+        </div>
+        <div class="header-actions">
+            <input type="file" id="file-upload" multiple accept=".html,.css,.js" style="display:none">
+            <input type="file" id="zip-upload" accept=".zip" style="display:none">
+            
+            <button class="btn btn-outline" id="btn-add-file" title="ファイル追加">
+                <span class="material-icons">note_add</span>
+                <span class="btn-text-hide">ファイル</span>
+            </button>
+            <button class="btn btn-outline" id="btn-add-zip" title="ZIP読み込み">
+                <span class="material-icons">folder_zip</span>
+                <span class="btn-text-hide">ZIP</span>
+            </button>
+            <button class="btn btn-primary" id="btn-preview">
+                <span class="material-icons">open_in_new</span>
+                <span>プレビュー</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span>ファイルエクスプローラー</span>
+                <span class="material-icons" style="color: var(--text-muted); font-size:1.1rem; cursor:pointer;" title="クリア" id="btn-clear">delete_outline</span>
+            </div>
+            <div class="file-tree-container" id="file-tree">
+                <!-- ファイルツリーがここに生成されます -->
+                <div style="padding: 1rem; color: var(--text-muted); font-size: 0.8rem; text-align: center;">
+                    ZIPファイルまたは各種ファイルを<br>追加してください
+                </div>
+            </div>
+        </aside>
+
+        <section class="editor-section">
+            <div class="editor-tabs" id="current-filename">
+                ファイルを選択してください
+            </div>
+            <div class="editor-container">
+                <div class="line-numbers" id="line-numbers">1</div>
+                <textarea class="code-textarea" id="code-editor" wrap="off" spellcheck="false" disabled></textarea>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        /**
+         * システムの全体状態を管理
+         */
+        const AppState = {
+            vfs: {}, // 仮想ファイルシステム { "path/to/file.html": "content..." }
+            currentFile: null
+        };
+
+        // DOM要素の取得
+        const DOM = {
+            fileTree: document.getElementById('file-tree'),
+            editor: document.getElementById('code-editor'),
+            lineNumbers: document.getElementById('line-numbers'),
+            currentFilename: document.getElementById('current-filename'),
+            btnZip: document.getElementById('btn-add-zip'),
+            btnFile: document.getElementById('btn-add-file'),
+            btnPreview: document.getElementById('btn-preview'),
+            btnClear: document.getElementById('btn-clear'),
+            zipUpload: document.getElementById('zip-upload'),
+            fileUpload: document.getElementById('file-upload')
+        };
+
+        /* =========================================
+           エディタの制御 (行番号とスクロールの完璧な同期)
+        ========================================= */
+        function updateLineNumbers() {
+            if (!AppState.currentFile) return;
+            const lines = DOM.editor.value.split('\n').length;
+            const lineHtml = Array.from({length: lines}, (_, i) => `<div>${i + 1}</div>`).join('');
+            if (DOM.lineNumbers.innerHTML !== lineHtml) {
+                DOM.lineNumbers.innerHTML = lineHtml;
+            }
+        }
+
+        // スクロール時のズレを防ぐため、scrollTopを同期
+        DOM.editor.addEventListener('scroll', () => {
+            DOM.lineNumbers.scrollTop = DOM.editor.scrollTop;
+        });
+
+        DOM.editor.addEventListener('input', () => {
+            if (AppState.currentFile) {
+                AppState.vfs[AppState.currentFile] = DOM.editor.value;
+                updateLineNumbers();
+            }
+        });
+
+        // タブキーの無効化（スペース2つに変換）
+        DOM.editor.addEventListener('keydown', (e) => {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = DOM.editor.selectionStart;
+                const end = DOM.editor.selectionEnd;
+                DOM.editor.value = DOM.editor.value.substring(0, start) + "  " + DOM.editor.value.substring(end);
+                DOM.editor.selectionStart = DOM.editor.selectionEnd = start + 2;
+                AppState.vfs[AppState.currentFile] = DOM.editor.value;
+            }
+        });
+
+        function loadFileToEditor(filepath) {
+            AppState.currentFile = filepath;
+            DOM.editor.value = AppState.vfs[filepath];
+            DOM.editor.disabled = false;
+            DOM.currentFilename.innerHTML = `<span class="material-icons" style="font-size:1rem; margin-right:0.5rem; vertical-align:middle;">description</span>${filepath}`;
+            updateLineNumbers();
+            renderFileTree(); // Active状態の更新
+        }
+
+        /* =========================================
+           ファイルツリーの描画 (階層対応)
+        ========================================= */
+        function renderFileTree() {
+            const paths = Object.keys(AppState.vfs).sort();
+            if (paths.length === 0) {
+                DOM.fileTree.innerHTML = '<div style="padding: 1rem; color: var(--text-muted); font-size: 0.8rem; text-align: center;">ファイルがありません</div>';
+                DOM.editor.value = "";
+                DOM.editor.disabled = true;
+                DOM.lineNumbers.innerHTML = "1";
+                DOM.currentFilename.innerText = "ファイルを選択してください";
+                return;
+            }
+
+            // シンプルかつバグの出にくい階層表示ロジック
+            DOM.fileTree.innerHTML = '';
+            
+            // ディレクトリ構造の構築
+            const tree = {};
+            paths.forEach(path => {
+                const parts = path.split('/');
+                let current = tree;
+                for (let i = 0; i < parts.length; i++) {
+                    const part = parts[i];
+                    if (i === parts.length - 1) {
+                        current[part] = path; // リーフノード（ファイル）
+                    } else {
+                        current[part] = current[part] || {};
+                        current = current[part];
+                    }
+                }
+            });
+
+            // 再帰的にDOMを生成
+            function createTreeDOM(node, container, depth = 0) {
+                for (const key in node) {
+                    if (typeof node[key] === 'string') {
+                        // ファイル
+                        const filepath = node[key];
+                        const el = document.createElement('div');
+                        el.className = `tree-item ${AppState.currentFile === filepath ? 'active' : ''}`;
+                        el.style.paddingLeft = `${depth * 15 + 10}px`;
+                        
+                        // アイコンの出し分け
+                        let icon = 'description';
+                        if(filepath.endsWith('.html')) icon = 'html';
+                        else if(filepath.endsWith('.css')) icon = 'css';
+                        else if(filepath.endsWith('.js')) icon = 'javascript';
+                        
+                        el.innerHTML = `<span class="material-icons">${icon}</span><span>${key}</span>`;
+                        el.onclick = () => loadFileToEditor(filepath);
+                        container.appendChild(el);
+                    } else {
+                        // フォルダ
+                        const folderEl = document.createElement('div');
+                        folderEl.className = 'tree-item';
+                        folderEl.style.paddingLeft = `${depth * 15 + 10}px`;
+                        folderEl.innerHTML = `<span class="material-icons">folder</span><span>${key}</span>`;
+                        container.appendChild(folderEl);
+                        
+                        const subContainer = document.createElement('div');
+                        createTreeDOM(node[key], subContainer, depth + 1);
+                        container.appendChild(subContainer);
+                    }
+                }
+            }
+            createTreeDOM(tree, DOM.fileTree);
+        }
+
+        /* =========================================
+           ファイル読み込み処理 (複数ファイル / ZIP)
+        ========================================= */
+        // 単一/複数ファイルのアップロード
+        DOM.btnFile.onclick = () => DOM.fileUpload.click();
+        DOM.fileUpload.onchange = async (e) => {
+            const files = e.target.files;
+            for (let file of files) {
+                const text = await file.text();
+                AppState.vfs[file.name] = text;
+            }
+            renderFileTree();
+            if(!AppState.currentFile) loadFileToEditor(Object.keys(AppState.vfs)[0]);
+            DOM.fileUpload.value = '';
+        };
+
+        // ZIPファイルのアップロードと展開
+        DOM.btnZip.onclick = () => DOM.zipUpload.click();
+        DOM.zipUpload.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            try {
+                const zip = new JSZip();
+                const contents = await zip.loadAsync(file);
+                
+                for (const filename of Object.keys(contents.files)) {
+                    const zipEntry = contents.files[filename];
+                    // 隠しファイル（Macの__MACOSX等）やディレクトリ自体はスキップ
+                    if (zipEntry.dir || filename.includes('__MACOSX') || filename.startsWith('.')) continue;
+                    
+                    // 今回はコードプレビューのためテキストファイル系のみを対象
+                    if (filename.match(/\.(html|css|js|txt|json|xml)$/i)) {
+                        const content = await zipEntry.async("string");
+                        AppState.vfs[filename] = content;
+                    }
+                }
+                renderFileTree();
+                
+                // index.htmlがあれば初期選択
+                const indexFile = Object.keys(AppState.vfs).find(k => k.endsWith('index.html')) || Object.keys(AppState.vfs)[0];
+                if (indexFile) loadFileToEditor(indexFile);
+                
+            } catch (err) {
+                alert("ZIPファイルの読み込みに失敗しました。");
+                console.error(err);
+            }
+            DOM.zipUpload.value = '';
+        };
+
+        // クリア機能
+        DOM.btnClear.onclick = () => {
+            if(confirm("全てのファイルをクリアしますか？")) {
+                AppState.vfs = {};
+                AppState.currentFile = null;
+                renderFileTree();
+            }
+        };
+
+        /* =========================================
+           プレビュー生成と新タブ展開ロジック
+        ========================================= */
+        DOM.btnPreview.onclick = () => {
+            const paths = Object.keys(AppState.vfs);
+            if (paths.length === 0) {
+                alert("プレビューするファイルがありません。");
+                return;
+            }
+
+            // メインとなるHTMLを検索（現在開いているHTML、または index.html、または最初のHTML）
+            let targetHtmlPath = null;
+            if (AppState.currentFile && AppState.currentFile.endsWith('.html')) {
+                targetHtmlPath = AppState.currentFile;
+            } else {
+                targetHtmlPath = paths.find(p => p.endsWith('index.html')) || paths.find(p => p.endsWith('.html'));
+            }
+
+            if (!targetHtmlPath) {
+                alert("HTMLファイルが見つかりません。少なくとも1つのHTMLファイルを含めてください。");
+                return;
+            }
+
+            const rawHtml = AppState.vfs[targetHtmlPath];
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(rawHtml, 'text/html');
+
+            // 仮想ファイルシステムの他のファイル(CSS/JS)をBlob URL化して紐付ける
+            paths.forEach(path => {
+                if (path === targetHtmlPath) return; // 自身はスキップ
+                
+                let mimeType = 'text/plain';
+                if (path.endsWith('.css')) mimeType = 'text/css';
+                else if (path.endsWith('.js')) mimeType = 'application/javascript';
+                
+                const blob = new Blob([AppState.vfs[path]], { type: mimeType });
+                const blobUrl = URL.createObjectURL(blob);
+                
+                // ファイル名だけでマッチングを行う（./style.css や css/style.css などの相対パス揺れを吸収）
+                const filename = path.split('/').pop();
+
+                // CSSの差し替え
+                doc.querySelectorAll(`link[rel="stylesheet"]`).forEach(link => {
+                    const href = link.getAttribute('href');
+                    if (href && (href.endsWith(path) || href.endsWith(filename))) {
+                        link.setAttribute('href', blobUrl);
+                    }
+                });
+
+                // JSの差し替え
+                doc.querySelectorAll(`script[src]`).forEach(script => {
+                    const src = script.getAttribute('src');
+                    if (src && (src.endsWith(path) || src.endsWith(filename))) {
+                        script.setAttribute('src', blobUrl);
+                    }
+                });
+            });
+
+            // 新しいタブで展開
+            const newWin = window.open('', '_blank');
+            if (newWin) {
+                newWin.document.open();
+                // プレビュー先でも文字化けしないように<!DOCTYPE html>を付与
+                newWin.document.write("<!DOCTYPE html>\n" + doc.documentElement.outerHTML);
+                newWin.document.close();
+            } else {
+                alert('ポップアップがブロックされました。ブラウザの設定で許可してください。');
+            }
+        };
+
+    </script>
+</body>
+</html>
