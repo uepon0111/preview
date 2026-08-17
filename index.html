@@ -120,6 +120,21 @@
             justify-content: space-between;
             align-items: center;
         }
+        
+        /* 追加: アクションアイコン */
+        .action-icon {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: color 0.1s;
+        }
+        .action-icon:hover {
+            color: var(--primary);
+        }
+        #btn-clear:hover {
+            color: #EF4444; /* 赤 */
+        }
+
         .file-tree-container {
             flex: 1;
             overflow-y: auto;
@@ -135,6 +150,7 @@
             font-size: 0.875rem;
             color: var(--text-main);
             transition: background 0.1s;
+            position: relative; /* 削除アイコンの配置用 */
         }
         .tree-item:hover {
             background-color: var(--bg-base);
@@ -150,6 +166,22 @@
         .tree-item.active .material-icons {
             color: var(--primary);
         }
+        
+        /* 追加: 削除アイコン */
+        .tree-item .delete-icon {
+            margin-left: auto;
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            opacity: 0;
+            transition: opacity 0.1s, color 0.1s;
+        }
+        .tree-item:hover .delete-icon {
+            opacity: 1;
+        }
+        .tree-item .delete-icon:hover {
+            color: #EF4444;
+        }
+
         .folder-group {
             margin-left: 1rem;
         }
@@ -250,13 +282,13 @@
             <input type="file" id="file-upload" multiple accept=".html,.css,.js" style="display:none">
             <input type="file" id="zip-upload" accept=".zip" style="display:none">
             
-            <button class="btn btn-outline" id="btn-add-file" title="ファイル追加">
-                <span class="material-icons">note_add</span>
-                <span class="btn-text-hide">ファイル</span>
+            <button class="btn btn-outline" id="btn-add-file" title="ローカルファイルを追加">
+                <span class="material-icons">upload_file</span>
+                <span class="btn-text-hide">ファイル読込</span>
             </button>
             <button class="btn btn-outline" id="btn-add-zip" title="ZIP読み込み">
                 <span class="material-icons">folder_zip</span>
-                <span class="btn-text-hide">ZIP</span>
+                <span class="btn-text-hide">ZIP読込</span>
             </button>
             <button class="btn btn-primary" id="btn-preview">
                 <span class="material-icons">open_in_new</span>
@@ -269,7 +301,11 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <span>ファイルエクスプローラー</span>
-                <span class="material-icons" style="color: var(--text-muted); font-size:1.1rem; cursor:pointer;" title="クリア" id="btn-clear">delete_outline</span>
+                <div style="display:flex; gap:0.4rem;">
+                    <span class="material-icons action-icon" title="新規ファイル作成" id="btn-new-file">note_add</span>
+                    <span class="material-icons action-icon" title="新規フォルダ作成" id="btn-new-folder">create_new_folder</span>
+                    <span class="material-icons action-icon" title="すべてクリア" id="btn-clear">delete_outline</span>
+                </div>
             </div>
             <div class="file-tree-container" id="file-tree">
                 <!-- ファイルツリーがここに生成されます -->
@@ -295,7 +331,7 @@
          * システムの全体状態を管理
          */
         const AppState = {
-            vfs: {}, // 仮想ファイルシステム { "path/to/file.html": "content..." }
+            vfs: {}, // 仮想ファイルシステム { "path/to/file.html": "content...", "folder/": null }
             currentFile: null
         };
 
@@ -310,7 +346,9 @@
             btnPreview: document.getElementById('btn-preview'),
             btnClear: document.getElementById('btn-clear'),
             zipUpload: document.getElementById('zip-upload'),
-            fileUpload: document.getElementById('file-upload')
+            fileUpload: document.getElementById('file-upload'),
+            btnNewFile: document.getElementById('btn-new-file'),
+            btnNewFolder: document.getElementById('btn-new-folder')
         };
 
         /* =========================================
@@ -325,7 +363,6 @@
             }
         }
 
-        // スクロール時のズレを防ぐため、scrollTopを同期
         DOM.editor.addEventListener('scroll', () => {
             DOM.lineNumbers.scrollTop = DOM.editor.scrollTop;
         });
@@ -337,7 +374,6 @@
             }
         });
 
-        // タブキーの無効化（スペース2つに変換）
         DOM.editor.addEventListener('keydown', (e) => {
             if (e.key === 'Tab') {
                 e.preventDefault();
@@ -350,12 +386,20 @@
         });
 
         function loadFileToEditor(filepath) {
+            if (filepath.endsWith('/')) return; // フォルダは開かない
             AppState.currentFile = filepath;
-            DOM.editor.value = AppState.vfs[filepath];
+            DOM.editor.value = AppState.vfs[filepath] || "";
             DOM.editor.disabled = false;
             DOM.currentFilename.innerHTML = `<span class="material-icons" style="font-size:1rem; margin-right:0.5rem; vertical-align:middle;">description</span>${filepath}`;
             updateLineNumbers();
             renderFileTree(); // Active状態の更新
+        }
+
+        function clearEditor() {
+            DOM.editor.value = "";
+            DOM.editor.disabled = true;
+            DOM.lineNumbers.innerHTML = "1";
+            DOM.currentFilename.innerText = "ファイルを選択してください";
         }
 
         /* =========================================
@@ -364,15 +408,11 @@
         function renderFileTree() {
             const paths = Object.keys(AppState.vfs).sort();
             if (paths.length === 0) {
-                DOM.fileTree.innerHTML = '<div style="padding: 1rem; color: var(--text-muted); font-size: 0.8rem; text-align: center;">ファイルがありません</div>';
-                DOM.editor.value = "";
-                DOM.editor.disabled = true;
-                DOM.lineNumbers.innerHTML = "1";
-                DOM.currentFilename.innerText = "ファイルを選択してください";
+                DOM.fileTree.innerHTML = '<div style="padding: 1rem; color: var(--text-muted); font-size: 0.8rem; text-align: center;">ファイルがありません<br>手動で作成するか追加してください</div>';
+                clearEditor();
                 return;
             }
 
-            // シンプルかつバグの出にくい階層表示ロジック
             DOM.fileTree.innerHTML = '';
             
             // ディレクトリ構造の構築
@@ -382,7 +422,8 @@
                 let current = tree;
                 for (let i = 0; i < parts.length; i++) {
                     const part = parts[i];
-                    if (i === parts.length - 1) {
+                    if (part === "") continue; // スラッシュ終わりの空文字スキップ
+                    if (i === parts.length - 1 && !path.endsWith('/')) {
                         current[part] = path; // リーフノード（ファイル）
                     } else {
                         current[part] = current[part] || {};
@@ -392,7 +433,7 @@
             });
 
             // 再帰的にDOMを生成
-            function createTreeDOM(node, container, depth = 0) {
+            function createTreeDOM(node, container, depth = 0, currentPath = '') {
                 for (const key in node) {
                     if (typeof node[key] === 'string') {
                         // ファイル
@@ -401,25 +442,46 @@
                         el.className = `tree-item ${AppState.currentFile === filepath ? 'active' : ''}`;
                         el.style.paddingLeft = `${depth * 15 + 10}px`;
                         
-                        // アイコンの出し分け
                         let icon = 'description';
                         if(filepath.endsWith('.html')) icon = 'html';
                         else if(filepath.endsWith('.css')) icon = 'css';
                         else if(filepath.endsWith('.js')) icon = 'javascript';
                         
-                        el.innerHTML = `<span class="material-icons">${icon}</span><span>${key}</span>`;
-                        el.onclick = () => loadFileToEditor(filepath);
+                        el.innerHTML = `
+                            <span class="material-icons">${icon}</span>
+                            <span style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${key}</span>
+                            <span class="material-icons delete-icon" title="削除">delete</span>
+                        `;
+                        el.onclick = (e) => {
+                            if (e.target.closest('.delete-icon')) {
+                                e.stopPropagation();
+                                deleteFile(filepath);
+                            } else {
+                                loadFileToEditor(filepath);
+                            }
+                        };
                         container.appendChild(el);
                     } else {
                         // フォルダ
+                        const folderPath = currentPath ? `${currentPath}${key}/` : `${key}/`;
                         const folderEl = document.createElement('div');
                         folderEl.className = 'tree-item';
                         folderEl.style.paddingLeft = `${depth * 15 + 10}px`;
-                        folderEl.innerHTML = `<span class="material-icons">folder</span><span>${key}</span>`;
+                        folderEl.innerHTML = `
+                            <span class="material-icons">folder</span>
+                            <span style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${key}</span>
+                            <span class="material-icons delete-icon" title="削除">delete</span>
+                        `;
+                        folderEl.onclick = (e) => {
+                            if (e.target.closest('.delete-icon')) {
+                                e.stopPropagation();
+                                deleteFolder(folderPath);
+                            }
+                        };
                         container.appendChild(folderEl);
                         
                         const subContainer = document.createElement('div');
-                        createTreeDOM(node[key], subContainer, depth + 1);
+                        createTreeDOM(node[key], subContainer, depth + 1, folderPath);
                         container.appendChild(subContainer);
                     }
                 }
@@ -428,9 +490,77 @@
         }
 
         /* =========================================
+           手動でのファイル・フォルダ作成機能
+        ========================================= */
+        DOM.btnNewFile.onclick = () => {
+            const filename = prompt("作成するファイル名（またはパス）を入力してください:\n例: index.html, js/app.js");
+            if (!filename) return;
+            const path = filename.trim();
+            if (AppState.vfs[path] !== undefined) {
+                alert("同名のファイルまたはフォルダが既に存在します。");
+                return;
+            }
+            if (path.endsWith('/')) {
+                alert("ファイル名は '/' で終わらないでください。");
+                return;
+            }
+            AppState.vfs[path] = "";
+            renderFileTree();
+            loadFileToEditor(path);
+        };
+
+        DOM.btnNewFolder.onclick = () => {
+            const foldername = prompt("作成するフォルダ名を入力してください:\n例: css, img/icons");
+            if (!foldername) return;
+            let path = foldername.trim();
+            if (!path.endsWith('/')) {
+                path += '/';
+            }
+            if (AppState.vfs[path] !== undefined) {
+                alert("同名のフォルダが既に存在します。");
+                return;
+            }
+            // 空フォルダ用のマーカーとしてnullをセット
+            AppState.vfs[path] = null; 
+            renderFileTree();
+        };
+
+        /* =========================================
+           削除機能
+        ========================================= */
+        function deleteFile(filepath) {
+            if (confirm(`ファイル '${filepath}' を削除しますか？`)) {
+                delete AppState.vfs[filepath];
+                if (AppState.currentFile === filepath) {
+                    AppState.currentFile = null;
+                    clearEditor();
+                }
+                renderFileTree();
+            }
+        }
+
+        function deleteFolder(folderPath) {
+            if (confirm(`フォルダ '${folderPath}' とその中身をすべて削除しますか？`)) {
+                let deletedCurrent = false;
+                Object.keys(AppState.vfs).forEach(path => {
+                    if (path.startsWith(folderPath)) {
+                        delete AppState.vfs[path];
+                        if (AppState.currentFile === path) {
+                            deletedCurrent = true;
+                        }
+                    }
+                });
+                if (deletedCurrent) {
+                    AppState.currentFile = null;
+                    clearEditor();
+                }
+                renderFileTree();
+            }
+        }
+
+        /* =========================================
            ファイル読み込み処理 (複数ファイル / ZIP)
         ========================================= */
-        // 単一/複数ファイルのアップロード
         DOM.btnFile.onclick = () => DOM.fileUpload.click();
         DOM.fileUpload.onchange = async (e) => {
             const files = e.target.files;
@@ -439,11 +569,13 @@
                 AppState.vfs[file.name] = text;
             }
             renderFileTree();
-            if(!AppState.currentFile) loadFileToEditor(Object.keys(AppState.vfs)[0]);
+            if(!AppState.currentFile) {
+                const firstFile = Object.keys(AppState.vfs).find(k => !k.endsWith('/'));
+                if (firstFile) loadFileToEditor(firstFile);
+            }
             DOM.fileUpload.value = '';
         };
 
-        // ZIPファイルのアップロードと展開
         DOM.btnZip.onclick = () => DOM.zipUpload.click();
         DOM.zipUpload.onchange = async (e) => {
             const file = e.target.files[0];
@@ -455,10 +587,8 @@
                 
                 for (const filename of Object.keys(contents.files)) {
                     const zipEntry = contents.files[filename];
-                    // 隠しファイル（Macの__MACOSX等）やディレクトリ自体はスキップ
                     if (zipEntry.dir || filename.includes('__MACOSX') || filename.startsWith('.')) continue;
                     
-                    // 今回はコードプレビューのためテキストファイル系のみを対象
                     if (filename.match(/\.(html|css|js|txt|json|xml)$/i)) {
                         const content = await zipEntry.async("string");
                         AppState.vfs[filename] = content;
@@ -466,8 +596,7 @@
                 }
                 renderFileTree();
                 
-                // index.htmlがあれば初期選択
-                const indexFile = Object.keys(AppState.vfs).find(k => k.endsWith('index.html')) || Object.keys(AppState.vfs)[0];
+                const indexFile = Object.keys(AppState.vfs).find(k => k.endsWith('index.html')) || Object.keys(AppState.vfs).find(k => !k.endsWith('/'));
                 if (indexFile) loadFileToEditor(indexFile);
                 
             } catch (err) {
@@ -496,7 +625,6 @@
                 return;
             }
 
-            // メインとなるHTMLを検索（現在開いているHTML、または index.html、または最初のHTML）
             let targetHtmlPath = null;
             if (AppState.currentFile && AppState.currentFile.endsWith('.html')) {
                 targetHtmlPath = AppState.currentFile;
@@ -509,25 +637,21 @@
                 return;
             }
 
-            const rawHtml = AppState.vfs[targetHtmlPath];
+            const rawHtml = AppState.vfs[targetHtmlPath] || "";
             const parser = new DOMParser();
             const doc = parser.parseFromString(rawHtml, 'text/html');
 
-            // 仮想ファイルシステムの他のファイル(CSS/JS)をBlob URL化して紐付ける
             paths.forEach(path => {
-                if (path === targetHtmlPath) return; // 自身はスキップ
+                if (path === targetHtmlPath || path.endsWith('/')) return; // 自身やフォルダはスキップ
                 
                 let mimeType = 'text/plain';
                 if (path.endsWith('.css')) mimeType = 'text/css';
                 else if (path.endsWith('.js')) mimeType = 'application/javascript';
                 
-                const blob = new Blob([AppState.vfs[path]], { type: mimeType });
+                const blob = new Blob([AppState.vfs[path] || ""], { type: mimeType });
                 const blobUrl = URL.createObjectURL(blob);
-                
-                // ファイル名だけでマッチングを行う（./style.css や css/style.css などの相対パス揺れを吸収）
                 const filename = path.split('/').pop();
 
-                // CSSの差し替え
                 doc.querySelectorAll(`link[rel="stylesheet"]`).forEach(link => {
                     const href = link.getAttribute('href');
                     if (href && (href.endsWith(path) || href.endsWith(filename))) {
@@ -535,7 +659,6 @@
                     }
                 });
 
-                // JSの差し替え
                 doc.querySelectorAll(`script[src]`).forEach(script => {
                     const src = script.getAttribute('src');
                     if (src && (src.endsWith(path) || src.endsWith(filename))) {
@@ -544,11 +667,9 @@
                 });
             });
 
-            // 新しいタブで展開
             const newWin = window.open('', '_blank');
             if (newWin) {
                 newWin.document.open();
-                // プレビュー先でも文字化けしないように<!DOCTYPE html>を付与
                 newWin.document.write("<!DOCTYPE html>\n" + doc.documentElement.outerHTML);
                 newWin.document.close();
             } else {
