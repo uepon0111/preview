@@ -416,7 +416,12 @@ void main(){ vec4 tc = texture(uTex, vUv) * vColor;
       const base = applyTransform(tIdx, quadvPos(center - w, center + w, 1, 1 - 2 * Math.abs(w) * SCALED_ASPECT));
       const z = zIndex(LAYER.FLICK_ARROW, center, y);
       if (cfg.flickAnimation) {
-        const t = (time % 0.5) / 0.5;
+        // The host clock runs negative during the lead-in (test10 starts at
+        // -1.6s) while the native transport starts at 0. Wrap the phase
+        // into [0, 1) so the arrow keeps its normal rise-and-fade cycle
+        // before the song starts too; a raw negative phase would reverse
+        // the offset off the note and push alpha above 1.
+        const t = (((time % 0.5) + 0.5) % 0.5) / 0.5;
         const anim = translateScaleQuad(base, direction * t, -2 * SCALED_ASPECT * t, y);
         const alpha = 1 - t * t * t;
         this.pushSpriteQuad(anim, sprite, 0, 1, 1, 1, alpha, z);
